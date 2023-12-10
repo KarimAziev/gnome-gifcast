@@ -1,0 +1,79 @@
+#+OPTIONS: ^:nil tags:nil num:nil
+
+* About
+
+Gif recording using gnome-screencast and ffmpeg.
+
+[[./gnome-gifcast.gif][./gnome-gifcast.gif]]
+
+* Table of Contents                                       :TOC_2_gh:QUOTE:
+#+BEGIN_QUOTE
+- [[#about][About]]
+- [[#requirements][Requirements]]
+- [[#installation][Installation]]
+  - [[#with-use-package-and-straightel][With use-package and straight.el]]
+  - [[#manual-installation][Manual installation]]
+- [[#usage][Usage]]
+  - [[#commands][Commands]]
+  - [[#customization][Customization]]
+#+END_QUOTE
+
+* Requirements
+
+| Name               | Version |
+|--------------------+---------|
+| Emacs              |    29.1 |
+| ~gnome-screencast~ |     1.3 |
+
+
+* Installation
+
+** With use-package and straight.el
+#+begin_src elisp :eval no
+(use-package gnome-gifcast
+  :straight (gnome-gifcast
+             :repo "KarimAziev/gnome-gifcast"
+             :type git
+             :host github)
+  :commands (gnome-gifcast
+             gnome-gifcast-start
+             gnome-gifcast-stop))
+#+end_src
+
+** Manual installation
+
+Download the source code and put it wherever you like, e.g. into =~/.emacs.d/gnome-gifcast/=
+
+#+begin_src shell :eval no
+git clone https://github.com/KarimAziev/gnome-gifcast.git ~/.emacs.d/gnome-gifcast/
+#+end_src
+
+Add the downloaded directory to the load path:
+
+#+begin_src elisp :eval no
+(add-to-list 'load-path "~/.emacs.d/gnome-gifcast/")
+(require 'gnome-gifcast)
+#+end_src
+
+* Usage
+
+** Commands
+
+**** ~gnome-gifcast~
+Toggle =gnome= screencast recording.
+**** ~gnome-gifcast-start~
+Start recording a screencast with =gnome=.
+**** ~gnome-gifcast-stop~
+Stop recording and convert to =gif=.
+** Customization
+
+**** ~gnome-gifcast-record-current-window-only~
+Records only the current window for =gif= screencasts. Determines whether to record only the current window during a screencast. When non-nil, the screencast will capture only the contents of the currently focused window. When nil, the entire screen will be recorded. To change the recording scope to the current window only, set this to t. To record the entire screen, set this to nil. This is a boolean option. Toggle or set the value to change the recording behavior for future screencasts.
+**** ~gnome-gifcast-post-record-hook~
+Hook run after recording a =gif= screencast. =a= hook that is run after the recording of a screencast is stopped. Hooks are lists of functions to be called at specific times. When a screencast recording is stopped, the functions in this hook are called with no arguments. To add a function to this hook, use =add-hook=. For example, to add a function named =my-post-record-function=. use: (add-hook 'gnome-gifcast-post-record-hook 'my-post-record-function) To remove a function from the hook, use =remove-hook=. Each function added to this hook should take no arguments and can perform any desired actions, such as cleaning up temporary files, displaying a notification, or logging the completion of the recording. The default value is nil, which means no functions are called after the recording stops. Customize this hook to extend the functionality of the screencast recording process according to specific needs.
+**** ~gnome-gifcast-pre-init-hook~
+Hook run before =gnome= =gif= screencast starts. Hook to run before =gnome= =gif= screencast recording starts. =a= hook that is run before the screencast recording process is initiated. Hooks are lists of functions to be called at specific times. When a screencast recording is about to start, the functions in this hook are called with no arguments. To add a function to this hook, use =add-hook=. For example, to add a function named =my-pre-init-function=. use: (add-hook 'gnome-gifcast-pre-init-hook 'my-pre-init-function) To remove a function from the hook, use =remove-hook=. Each function should perform any setup required before the recording starts. This could include setting up window arrangements, starting applications, or any other pre-recording tasks. Customize this hook to prepare the environment for screencast recording according to specific needs.
+**** ~gnome-gifcast-post-process-hook~
+Hook to run after =gif= creation from screencast. =a= hook that is run after the =gif= conversion process is complete. Hooks are lists of functions to be called at specific times. When a screencast recording is stopped and the resulting video file is converted to a =gif=. the functions in this hook are called with one argument: the path to the output =gif= file. To add a function to this hook, use =add-hook=. For example, to add a function named =my-post-process-function= that takes the output file path as an argument, use: (add-hook 'gnome-gifcast-post-process-hook 'my-post-process-function) To remove a function from the hook, use =remove-hook=. Each function should accept a single string argument, which is the path to the =gif= file. Functions can perform any desired post-processing, such as moving the file, uploading it, or opening it in an image viewer. The default value is a list containing =gnome-gifcast-browse-file-url=. which opens the resulting =gif= file in the default web browser. Customize this hook to extend the functionality of the =gif= conversion process according to specific post-processing needs.
+**** ~gnome-gifcast-ffmpeg-args~
+List of arguments for ffmpeg command. Specifies the arguments passed to ffmpeg when converting a screencast to =gif= format. The default value is a list containing "-vf" and "fps=10", which sets the frame rate of the output =gif= to 10 frames per second. Each element in the list is a string that represents a single command-line argument to ffmpeg. These arguments are used to control the conversion process, such as setting video filters, frame rates, or other encoding options. To customize the conversion process, modify the list with appropriate ffmpeg command-line arguments. Ensure that each argument is a separate string in the list. For example, to scale the width to 680 pixels, keep the aspect ratio for the height, and apply the high-quality Lanczos resampling algorithm: '("-vf" "fps=10,scale=680:-1:flags=lanczos").
