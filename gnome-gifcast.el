@@ -86,16 +86,21 @@ according to specific post-processing needs."
   :group 'gnome-gifcast
   :type 'hook)
 
+(defcustom gnome-gifcast-record-current-window-only nil
+  "Records only the current window for GIF screencasts.
 
-(defcustom gnome-gifcast-minimal-autoopen-duration 3
-  "Minimal duration in seconds for auto opening recorded gifs."
-  :group 'gnome-gifcast
-  :type 'integer)
+Determines whether to record only the current window during a screencast.
 
-(defcustom gnome-gifcast-allow-mode-line-indicator t
-  "Whether to show countdown and duration in mode-line."
-  :group 'gnome-gifcast
-  :type 'boolean)
+When non-nil, the screencast will capture only the contents of the currently
+focused window. When nil, the entire screen will be recorded.
+
+To change the recording scope to the current window only, set this to t. To
+record the entire screen, set this to nil.
+
+This is a boolean option. Toggle or set the value to change the recording
+behavior for future screencasts."
+  :type 'boolean
+  :group 'gnome-gifcast)
 
 
 (defvar gnome-gifcast--duration-timer nil)
@@ -177,7 +182,7 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
 
 ;;;###autoload
 (defun gnome-gifcast-stop ()
-  "Stop screencast recording and convert to GIF."
+  "Stop recording and convert to GIF."
   (interactive)
   (gnome-screencast-stop)
   (when-let* ((dir (xdg-user-dir "VIDEOS"))
@@ -237,9 +242,10 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
                (when (fboundp 'comint-output-filter)
                  (set-process-filter proc #'comint-output-filter)))))))
 
+
 ;;;###autoload
 (defun gnome-gifcast-start ()
-  "Start GNOME screencast with project-based filename."
+  "Start recording a screencast with GNOME."
   (interactive)
   (when-let (project-name
              (file-name-base
@@ -255,11 +261,17 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
                 default-directory))))
     (setq gnome-gifcast-gnome-running t)
     (setq gnome-gifcast-gnome-screencast-file (concat project-name ".webm"))
-    (gnome-screencast gnome-gifcast-gnome-screencast-file)))
+    (if gnome-gifcast-record-current-window-only
+        (gnome-screencast-area gnome-gifcast-gnome-screencast-file
+                               (window-pixel-left)
+                               (window-pixel-top)
+                               (window-pixel-width)
+                               (window-pixel-height))
+      (gnome-screencast gnome-gifcast-gnome-screencast-file))))
 
 ;;;###autoload
 (defun gnome-gifcast ()
-  "Toggle GNOME screencast recording with project name."
+  "Toggle GNOME screencast recording."
   (interactive)
   (gnome-gifcast--cancel-duration-timer)
   (pcase gnome-gifcast--duration-seconds
