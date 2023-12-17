@@ -2,7 +2,7 @@
 
 * About
 
-Gif recording using gnome-screencast and ffmpeg.
+Gif recording using =gnome-screencast= and =ffmpeg=.
 
 [[./gnome-gifcast.gif][./gnome-gifcast.gif]]
 
@@ -20,11 +20,22 @@ Gif recording using gnome-screencast and ffmpeg.
 
 * Requirements
 
-| Name               | Version |
-|--------------------+---------|
-| Emacs              |    29.1 |
-| ~gnome-screencast~ |     1.3 |
+| Name             | Version | Description                                                                                |
+|------------------+---------+--------------------------------------------------------------------------------------------|
+| Emacs            |    29.1 | Text editor.                                                                               |
+| [[https://github.com/juergenhoetzel/emacs-gnome-screencast][gnome-screencast]] |     1.3 | Emacs interface for initiating GNOME Shell's built-in screencasting capability.            |
+|------------------+---------+--------------------------------------------------------------------------------------------|
+| gnome-shell      |         | The graphical shell of the GNOME desktop environment with native screencast functionality. |
+| [[https://ffmpeg.org/][ffmpeg]]           |         | Command-line tool used for video and audio processing.                                     |
+| dbus             |         | Message bus system that gnome-screencast uses to communicate with GNOME Shell.             |
+|                  |         |                                                                                            |
 
+
+#+begin_quote
+[!NOTE]
+
+This list assumes you're using a GNOME environment where the native screencasting capability (=gnome-screencast=) and =dbus= are available.
+#+end_quote
 
 * Installation
 
