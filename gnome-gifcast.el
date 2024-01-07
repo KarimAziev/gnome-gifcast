@@ -181,7 +181,8 @@ This will direct all new screencast recordings to the specified directory."
 
 (defvar gnome-gifcast--duration-timer nil
   "Timer controlling GIF frame duration.")
-(defvar gnome-gifcast--duration-seconds -3
+
+(defvar gnome-gifcast--duration-seconds nil
   "Duration in seconds for each frame in a GIF.")
 
 (defun gnome-gifcast--cancel-duration-timer ()
