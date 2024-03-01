@@ -34,7 +34,9 @@
 (require 'xdg)
 (require 'gnome-screencast)
 
-(defcustom gnome-gifcast-ffmpeg-args '("-vf" "fps=10,scale=680:-1:flags=lanczos")
+(defcustom gnome-gifcast-ffmpeg-args '("-vf"
+                                       "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
+                                       "-loop" "0")
   "List of arguments for ffmpeg command.
 
 Specifies the arguments passed to ffmpeg when converting a screencast to GIF
@@ -140,7 +142,7 @@ process according to specific needs."
   :group 'gnome-gifcast
   :type 'hook)
 
-(defcustom gnome-gifcast-record-current-window-only t
+(defcustom gnome-gifcast-record-current-window-only nil
   "Records only the current window for GIF screencasts.
 
 Determines whether to record only the current window during a screencast.
@@ -271,64 +273,78 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
       (when (file-exists-p file)
         file))))
 
+(defun gnome-gifcast-convert-to-gif (file)
+  "Convert a video FILE to GIF using ffmpeg with custom arguments.
+
+Argument FILE is the path to the video file to be converted to GIF."
+  (interactive (list (read-file-name "Video to convert: ")))
+  (let* ((outfile (concat
+                   (file-name-sans-extension
+                    file)
+                   ".gif"))
+         (command "ffmpeg")
+         (args (delq nil
+                     (append (list "-i" file)
+                             gnome-gifcast-ffmpeg-args
+                             (list "-c:v" "gif"
+                                   "-f" "gif"
+                                   (concat
+                                    (file-name-sans-extension
+                                     file)
+                                    ".gif")))))
+         (buffer (generate-new-buffer (format "*%s*" command)))
+         (proc))
+    (when (file-exists-p outfile)
+      (delete-file outfile t))
+    (progn (with-current-buffer buffer
+             (setq proc (apply #'start-process command buffer
+                               command
+                               args))
+             (require 'shell)
+             (when (fboundp 'shell-mode)
+               (shell-mode))
+             (view-mode +1))
+           (pop-to-buffer buffer)
+           (set-process-sentinel
+            proc
+            (lambda (process _state)
+              (unwind-protect
+                  (let* ((buff (process-buffer process))
+                         (output (if (process-buffer process)
+                                     (with-current-buffer
+                                         (process-buffer process)
+                                       (buffer-string)))))
+                    (if (zerop (process-exit-status process))
+                        (progn
+                          (run-hook-with-args
+                           'gnome-gifcast-post-process-hook outfile)
+                          (when outfile
+                            (run-hook-with-args
+                             'gnome-gifcast-browse-file-url
+                             outfile))
+                          (when (and buff (buffer-live-p buff))
+                            (kill-buffer buff)))
+                      (user-error (format "%s\n%s" command output))))
+                (setq gnome-gifcast-gnome-running nil))))
+           (require 'comint)
+           (when (fboundp 'comint-output-filter)
+             (set-process-filter proc #'comint-output-filter)))))
+
+(defun gnome-gifcast-screencast-file-to-gif ()
+  "Convert a GNOME screencast file to GIF format."
+  (when-let ((file (gnome-gifcast-resolve-screencastfile)))
+    (gnome-gifcast-convert-to-gif file)))
+
 
 ;;;###autoload
 (defun gnome-gifcast-stop ()
   "Stop recording and convert to GIF."
   (interactive)
   (gnome-screencast-stop)
-  (run-hooks 'gnome-gifcast-post-record-hook)
+  (setq gnome-gifcast-gnome-running nil)
   (when-let ((file (gnome-gifcast-resolve-screencastfile)))
-    (let* ((outfile (concat
-                     (file-name-sans-extension
-                      file)
-                     ".gif"))
-           (command "ffmpeg")
-           (args (delq nil
-                       (append (list "-i" file)
-                               gnome-gifcast-ffmpeg-args
-                               (list "-c:v" "gif"
-                                     "-f" "gif"
-                                     (concat
-                                      (file-name-sans-extension
-                                       file)
-                                      ".gif")))))
-           (buffer (generate-new-buffer (format "*%s*" command)))
-           (proc))
-      (when (file-exists-p outfile)
-        (delete-file outfile t))
-      (progn (with-current-buffer buffer
-               (setq proc (apply #'start-process command buffer
-                                 command
-                                 args))
-               (require 'shell)
-               (when (fboundp 'shell-mode)
-                 (shell-mode))
-               (view-mode +1))
-             (pop-to-buffer buffer)
-             (set-process-sentinel
-              proc
-              (lambda (process _state)
-                (let* ((buff (process-buffer process))
-                       (output (if (process-buffer process)
-                                   (with-current-buffer
-                                       (process-buffer process)
-                                     (buffer-string)))))
-                  (if (zerop (process-exit-status process))
-                      (progn (setq gnome-gifcast-gnome-running nil)
-                             (run-hook-with-args
-                              'gnome-gifcast-post-process-hook outfile)
-                             (when outfile
-                               (run-hook-with-args
-                                'gnome-gifcast-browse-file-url
-                                outfile))
-                             (when (and buff (buffer-live-p buff))
-                               (kill-buffer buff)))
-                    (setq gnome-gifcast-gnome-running nil)
-                    (user-error (format "%s\n%s" command output))))))
-             (require 'comint)
-             (when (fboundp 'comint-output-filter)
-               (set-process-filter proc #'comint-output-filter))))))
+    (message "Recorded %s" (abbreviate-file-name file)))
+  (run-hooks 'gnome-gifcast-post-record-hook))
 
 (defvar gnome-gifcast-coords '()
   "Coordinates for GIF capture area in Gnome Gifcast.")
@@ -337,20 +353,19 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
 (defun gnome-gifcast-start ()
   "Start recording a screencast with GNOME."
   (interactive)
-  (when-let (project-name
-             (file-name-base
-              (directory-file-name
-               (or
-                (when-let ((project (ignore-errors
-                                      (project-current))))
-                  (if (fboundp 'project-root)
-                      (project-root project)
-                    (with-no-warnings
-                      (car (project-roots project)))))
-                buffer-file-name
-                default-directory))))
-    (setq gnome-gifcast-gnome-running t)
+  (let ((project-name (file-name-base
+                       (directory-file-name
+                        (or
+                         (when-let ((project (ignore-errors
+                                               (project-current))))
+                           (if (fboundp 'project-root)
+                               (project-root project)
+                             (with-no-warnings
+                               (car (project-roots project)))))
+                         buffer-file-name
+                         (replace-regexp-in-string "\\*" "" (buffer-name)))))))
     (setq gnome-gifcast-gnome-screencast-file (concat project-name ".webm"))
+    (setq gnome-gifcast-gnome-running t)
     (if gnome-gifcast-coords
         (apply #'gnome-screencast-area gnome-gifcast-gnome-screencast-file
                gnome-gifcast-coords)
@@ -368,39 +383,70 @@ Argument WIND is the window for which to get the coordinates."
                 (height (- (frame-pixel-height) top)))
            (list left top width height)))))
 
-;;;###autoload
-(defun gnome-gifcast ()
-  "Toggle GNOME screencast recording."
-  (interactive)
+
+(defun gnome-gifcast--worker ()
+  "Run GNOME screencast recording and conversion.
+
+Optional argument ARG is an integer that modifies the behavior of the function
+when provided."
   (gnome-gifcast--cancel-duration-timer)
-  (setq gnome-gifcast-coords
-        (when gnome-gifcast-record-current-window-only
-          (if-let ((wnd (minibuffer-selected-window)))
-              (gnome-gifcast-get-window-coords wnd)
-            (gnome-gifcast-get-window-coords (selected-window)))))
   (pcase gnome-gifcast--duration-seconds
-    ((pred (not (integerp)))
-     (setq gnome-gifcast--duration-seconds -3)
-     (run-hooks 'gnome-gifcast-pre-init-hook)
-     (gnome-gifcast--mode-line-start)
-     (setq gnome-gifcast--duration-timer
-           (run-with-timer 1 nil #'gnome-gifcast)))
     ((pred (> 0))
      (setq gnome-gifcast--duration-seconds (1+ gnome-gifcast--duration-seconds))
      (force-mode-line-update)
      (setq gnome-gifcast--duration-timer
-           (run-with-timer 1 nil #'gnome-gifcast)))
+           (run-with-timer 1 nil #'gnome-gifcast--worker)))
     ((pred (zerop))
      (force-mode-line-update)
      (gnome-gifcast-start)
      (setq gnome-gifcast--duration-timer
-           (run-with-timer 1 nil #'gnome-gifcast--increment-duration)))
-    (_
+           (run-with-timer 1 nil #'gnome-gifcast--increment-duration)))))
+
+;;;###autoload
+(defun gnome-gifcast-toggle (&optional arg)
+  "Toggle GNOME screencast recording.
+
+Optional argument ARG is an integer that modifies the behavior of the function
+when provided."
+  (interactive "P")
+  (gnome-gifcast--cancel-duration-timer)
+  (pcase gnome-gifcast--duration-seconds
+    ((pred (not (integerp)))
+     (setq gnome-gifcast--duration-seconds -3)
+     (setq gnome-gifcast-coords
+           (when (if arg
+                     (not gnome-gifcast-record-current-window-only)
+                   gnome-gifcast-record-current-window-only)
+             (if-let ((wnd (minibuffer-selected-window)))
+                 (gnome-gifcast-get-window-coords wnd)
+               (gnome-gifcast-get-window-coords (selected-window)))))
+     (run-hooks 'gnome-gifcast-pre-init-hook)
+     (gnome-gifcast--mode-line-start)
+     (setq gnome-gifcast--duration-timer
+           (run-with-timer 1 nil #'gnome-gifcast--worker)))
+    ((pred (< 0))
      (setq gnome-gifcast--duration-seconds nil)
      (gnome-gifcast-stop)
+     (gnome-gifcast--mode-line-stop))
+    (_
+     (setq gnome-gifcast--duration-seconds nil)
      (gnome-gifcast--mode-line-stop))))
 
+;;;###autoload
+(defun gnome-gifcast (&optional arg)
+  "Toggle GNOME screencast recording and conversion to gif.
 
+Optional argument ARG is an integer that modifies the behavior of the function
+when provided."
+  (interactive "P")
+  (let ((gnome-gifcast-post-record-hook
+         (if (memq 'gnome-gifcast-screencast-file-to-gif
+                   gnome-gifcast-post-record-hook)
+             gnome-gifcast-post-record-hook
+           (append
+            gnome-gifcast-post-record-hook
+            '(gnome-gifcast-screencast-file-to-gif)))))
+    (gnome-gifcast arg)))
 
 (provide 'gnome-gifcast)
 ;;; gnome-gifcast.el ends here
