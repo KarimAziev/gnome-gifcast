@@ -340,11 +340,13 @@ Argument FILE is the path to the video file to be converted to GIF."
 (defun gnome-gifcast-stop ()
   "Stop recording and convert to GIF."
   (interactive)
-  (gnome-screencast-stop)
-  (setq gnome-gifcast-gnome-running nil)
-  (when-let ((file (gnome-gifcast-resolve-screencastfile)))
-    (message "Recorded %s" (abbreviate-file-name file)))
-  (run-hooks 'gnome-gifcast-post-record-hook))
+  (unwind-protect
+      (gnome-screencast-stop)
+    (progn
+      (setq gnome-gifcast-gnome-running nil)
+      (when-let ((file (gnome-gifcast-resolve-screencastfile)))
+        (message "Recorded %s" (abbreviate-file-name file)))
+      (run-hooks 'gnome-gifcast-post-record-hook))))
 
 (defvar gnome-gifcast-coords '()
   "Coordinates for GIF capture area in Gnome Gifcast.")
