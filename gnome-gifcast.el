@@ -446,7 +446,7 @@ when provided."
            (append
             gnome-gifcast-post-record-hook
             '(gnome-gifcast-screencast-file-to-gif)))))
-    (gnome-gifcast arg)))
+    (gnome-gifcast-toggle arg)))
 
 (provide 'gnome-gifcast)
 ;;; gnome-gifcast.el ends here
