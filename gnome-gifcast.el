@@ -34,8 +34,8 @@
 (require 'xdg)
 (require 'gnome-screencast)
 
-(defcustom gnome-gifcast-ffmpeg-args '("-vf"
-                                       "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
+(defcustom gnome-gifcast-ffmpeg-args '("-y" "-vf"
+                                       "fps=12,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer"
                                        "-loop" "0")
   "List of arguments for ffmpeg command.
 
@@ -57,6 +57,69 @@ height, and apply the high-quality Lanczos resampling algorithm:
 \\='(\"-vf\" \"fps=10,scale=680:-1:flags=lanczos\")."
   :type '(repeat string)
   :group 'gnome-gifcast)
+
+(defcustom gnome-gifcast-gnome-screencast-arguments (list nil 30
+                                                          "vp9enc ! mp4mux")
+  "Customizable arguments for Gnome Screencast."
+  :group 'gnome-gifcast
+  :type '(list
+          (boolean
+           :tag "Draw cursor"
+           :doc "Whether the cursor should be included")
+          (natnum :tag "Framerate" 30)
+          (radio :tag "Pipeline"
+           (const
+            :tag "vp9enc ! mp4mux"
+            :format "%v    %h"
+            :doc
+            "High efficiency, especially in HD video.
+                  Offers high efficiency, especially in HD video.
+                  Uses VP9 codec for encoding and MP4 container.
+                  Note: VP9 in MP4 may limit compatibility."
+            "vp9enc ! mp4mux")
+           (const
+            :format "%v   %h"
+            :tag "x264enc ! mp4mux"
+            :doc
+            "Balance in quality and efficiency, with broad compatibility.
+                  Renowned for balance in quality and efficiency, with broad compatibility.
+                  Utilizes H.264/AVC codec with MP4 container."
+            "x264enc ! mp4mux")
+           (string :tag "other"))))
+
+(defcustom gnome-gifcast-out-filename #'gnome-gifcast--generate-filename-with-counter
+  "Function or string defining output filename for GNOME screencasts.
+
+Determines the naming strategy for output video files created by GNOME
+Gifcast.
+
+Note it is not the name of the GIF output file, it is the name of video outfile,
+that will be created in `gnome-gifcast-screencast-directory'.
+
+The default method generates a filename with an incrementing counter to ensure
+uniqueness.
+
+Options include:
+- A static filename based on project or bufer,
+which will be reused for every recording, potentially overwriting previous ones.
+- A filename generated with a counter to avoid overwrites.
+- A custom function which will be called without arguments and should return
+filename base to put in `gnome-gifcast-screencast-directory'.
+- A permanent name specified as a string, which will also risk overwriting files
+with the same name.
+
+To use a custom function, it must take no arguments and return a string"
+  :group 'gnome-gifcast
+  :type '(radio
+          (function-item gnome-gifcast--generate-static-filename)
+          (function-item gnome-gifcast--generate-filename-with-counter)
+          (function :tag "Custom function")
+          (string :tag "Permanent name")))
+
+(defcustom gnome-gifcast-countdown-seconds 3
+  "The number of seconds that will be counted down before recording."
+  :group 'gnome-gifcast
+  :type 'natnum)
 
 (defcustom gnome-gifcast-post-process-hook '(gnome-gifcast-browse-file-url)
   "Hook to run after GIF creation from screencast.
@@ -207,16 +270,12 @@ This will direct all new screencast recordings to the specified directory."
 
 (defun gnome-gifcast--mode-line-indicator ()
   "Return a string for the mode line with countdown or duration."
-  (when-let ((label
-              (pcase gnome-gifcast--duration-seconds
-                ('nil)
-                ((pred (not (integerp))))
-                ;; ((pred (<= 0))
-                ;;  (propertize " ● " 'face 'font-lock-builtin-face))
-                ((pred (> 0))
-                 (format "▶ in %s" (- gnome-gifcast--duration-seconds)))
-                (_ (format "● %s" gnome-gifcast--duration-seconds)))))
-    label))
+  (pcase gnome-gifcast--duration-seconds
+    ('nil)
+    ((pred (not (integerp))))
+    ((pred (> 0))
+     (format "▶ in %s" (- gnome-gifcast--duration-seconds)))
+    (_ (format "● %s" gnome-gifcast--duration-seconds))))
 
 (defun gnome-gifcast--mode-line-start ()
   "Add custom modeline format if not already present."
@@ -273,29 +332,32 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
       (when (file-exists-p file)
         file))))
 
-(defun gnome-gifcast-convert-to-gif (file)
-  "Convert a video FILE to GIF using ffmpeg with custom arguments.
+(defun gnome-gifcast--convert-to-gif (file &optional outfile on-success
+                                           on-error)
+  "Convert a video FILE to GIF format using ffmpeg.
 
-Argument FILE is the path to the video file to be converted to GIF."
-  (interactive (list (read-file-name "Video to convert: ")))
-  (let* ((outfile (concat
-                   (file-name-sans-extension
-                    file)
-                   ".gif"))
-         (command "ffmpeg")
+Argument FILE is the path to the input video file.
+
+Optional argument OUTFILE is the path where the output GIF should be saved. If
+not provided, it defaults to the same name as FILE but with a `.gif' extension.
+
+Optional argument ON-SUCCESS is a function to call upon successful conversion.
+
+Optional argument ON-ERROR is a function to call if the conversion fails."
+  (let* ((command "ffmpeg")
+         (outfile (or outfile
+                      (concat
+                       (file-name-sans-extension
+                        file)
+                       ".gif")))
          (args (delq nil
                      (append (list "-i" file)
                              gnome-gifcast-ffmpeg-args
                              (list "-c:v" "gif"
                                    "-f" "gif"
-                                   (concat
-                                    (file-name-sans-extension
-                                     file)
-                                    ".gif")))))
+                                   outfile))))
          (buffer (generate-new-buffer (format "*%s*" command)))
          (proc))
-    (when (file-exists-p outfile)
-      (delete-file outfile t))
     (progn (with-current-buffer buffer
              (setq proc (apply #'start-process command buffer
                                command
@@ -308,70 +370,155 @@ Argument FILE is the path to the video file to be converted to GIF."
            (set-process-sentinel
             proc
             (lambda (process _state)
-              (unwind-protect
-                  (let* ((buff (process-buffer process))
-                         (output (if (process-buffer process)
-                                     (with-current-buffer
-                                         (process-buffer process)
-                                       (buffer-string)))))
-                    (if (zerop (process-exit-status process))
-                        (progn
-                          (run-hook-with-args
-                           'gnome-gifcast-post-process-hook outfile)
-                          (when outfile
-                            (run-hook-with-args
-                             'gnome-gifcast-browse-file-url
-                             outfile))
-                          (when (and buff (buffer-live-p buff))
-                            (kill-buffer buff)))
-                      (user-error (format "%s\n%s" command output))))
-                (setq gnome-gifcast-gnome-running nil))))
+              (let ((buff (process-buffer process)))
+                (if (not (zerop (process-exit-status process)))
+                    (and on-error
+                         (if buff
+                             (with-current-buffer buff
+                               (funcall on-error))
+                           (funcall on-error)))
+                  (when on-success
+                    (funcall on-success outfile))
+                  (when-let ((buff (process-buffer process)))
+                    (kill-buffer buff))))))
            (require 'comint)
            (when (fboundp 'comint-output-filter)
-             (set-process-filter proc #'comint-output-filter)))))
+             (set-process-filter proc #'comint-output-filter))
+           proc)))
+
+(defun gnome-gifcast-convert-to-gif (file &optional outfile)
+  "Convert a video FILE to GIF format and notify on completion.
+
+Argument FILE is the path to the video file to be converted.
+
+Optional argument OUTFILE is the path where the converted GIF should be saved."
+  (interactive
+   (let* ((input-file
+           (read-file-name "Video to convert: "
+                           nil
+                           nil
+                           t
+                           (and (derived-mode-p 'dired-mode)
+                                (car
+                                 (when (fboundp 'dired-get-marked-files)
+                                   (dired-get-marked-files))))))
+          (out-file (read-file-name "Outfile: " (concat
+                                                 (file-name-sans-extension
+                                                  input-file)
+                                                 ".gif"))))
+     (list input-file
+           out-file)))
+  (gnome-gifcast--convert-to-gif file
+                                 outfile
+                                 (lambda (outfile)
+                                   (gnome-gifcast-notify outfile))))
+
 
 (defun gnome-gifcast-screencast-file-to-gif ()
   "Convert a GNOME screencast file to GIF format."
   (when-let ((file (gnome-gifcast-resolve-screencastfile)))
-    (gnome-gifcast-convert-to-gif file)))
+    (gnome-gifcast--convert-to-gif file
+                                   nil
+                                   (lambda (outfile)
+                                     (gnome-gifcast-notify outfile)))))
 
 
 ;;;###autoload
 (defun gnome-gifcast-stop ()
   "Stop recording and convert to GIF."
   (interactive)
-  (unwind-protect
-      (gnome-screencast-stop)
-    (progn
+  (let ((running gnome-gifcast-gnome-running))
+    (unwind-protect
+        (gnome-screencast-stop)
       (setq gnome-gifcast-gnome-running nil)
-      (when-let ((file (gnome-gifcast-resolve-screencastfile)))
-        (message "Recorded %s" (abbreviate-file-name file)))
-      (run-hooks 'gnome-gifcast-post-record-hook))))
+      (progn
+        (when-let ((file (gnome-gifcast-resolve-screencastfile)))
+          (when (and running
+                     (not (memq 'gnome-gifcast-screencast-file-to-gif
+                                gnome-gifcast-post-record-hook)))
+            (gnome-gifcast-notify file)
+            (run-hook-with-args
+             'gnome-gifcast-post-process-hook file)))
+        (run-hooks 'gnome-gifcast-post-record-hook)))))
 
 (defvar gnome-gifcast-coords '()
   "Coordinates for GIF capture area in Gnome Gifcast.")
 
+
+(defun gnome-gifcast--generate-static-filename ()
+  "Generate a static filename based on project root, or buffer name.
+Note, potentially it can overwrite previous ones."
+  (file-name-base
+   (directory-file-name
+    (or
+     (when-let ((project (ignore-errors
+                           (project-current))))
+       (if (fboundp 'project-root)
+           (project-root project)
+         (with-no-warnings
+           (car (project-roots project)))))
+     buffer-file-name
+     (let ((buff-name (buffer-name)))
+       (if (string-match-p "[a-z0-9]" buff-name)
+           (replace-regexp-in-string "[-][-]+" "-"
+                                     (replace-regexp-in-string
+                                      "[^a-z0-9_]" "-"
+                                      buff-name))
+         (replace-regexp-in-string "[/]" "" buff-name)))))))
+
+(defun gnome-gifcast--generate-filename-with-counter ()
+  "Generate a unique name by appending a counter from project root or buffer name."
+  (gnome-gifcast--uniqify-filename-with-counter
+   (gnome-gifcast--generate-static-filename)))
+
+(defun gnome-gifcast--uniqify-filename-with-counter (file)
+  "Generate a unique filename for FILE by appending a counter to avoid duplicates.
+
+Optional argument FILE is the base name for the output file, possibly with
+extension."
+  (let* ((ext (file-name-extension file))
+         (basename (file-name-base file))
+         (file-regex (concat "\\`"
+                             (regexp-quote basename)
+                             (if ext
+                                 (concat "\\(-[0-9]+\\)" "\\." ext "\\'")
+                               "\\(-[0-9]+\\)\\'")))
+         (max-count 0)
+         (new-name))
+    (dolist (filename (directory-files gnome-gifcast-screencast-directory
+                                       nil
+                                       file-regex))
+      (let
+          ((count (string-to-number (car (last (split-string filename "-" t))))))
+        (when (> count max-count)
+          (setq max-count count))))
+    (setq new-name (string-join
+                    (delq nil (list (format "%s-%d" basename max-count)
+                                    (and ext (concat "." ext))))
+                    ""))
+    (while (file-exists-p (expand-file-name new-name
+                                            gnome-gifcast-screencast-directory))
+      (setq max-count (1+ max-count))
+      (setq new-name (string-join
+                      (delq nil (list (format "%s-%d" basename max-count)
+                                      (and ext (concat "." ext))))
+                      "")))
+    new-name))
+
 ;;;###autoload
-(defun gnome-gifcast-start ()
-  "Start recording a screencast with GNOME."
-  (interactive)
-  (let ((project-name (file-name-base
-                       (directory-file-name
-                        (or
-                         (when-let ((project (ignore-errors
-                                               (project-current))))
-                           (if (fboundp 'project-root)
-                               (project-root project)
-                             (with-no-warnings
-                               (car (project-roots project)))))
-                         buffer-file-name
-                         (replace-regexp-in-string "\\*" "" (buffer-name)))))))
-    (setq gnome-gifcast-gnome-screencast-file (concat project-name ".webm"))
-    (setq gnome-gifcast-gnome-running t)
-    (if gnome-gifcast-coords
-        (apply #'gnome-screencast-area gnome-gifcast-gnome-screencast-file
-               gnome-gifcast-coords)
-      (gnome-screencast gnome-gifcast-gnome-screencast-file))))
+(defun gnome-gifcast-start (outfile-name-base)
+  "Start recording a screencast with optional area coordinates.
+
+Argument OUTFILE-NAME-BASE is the file name base of the output file."
+  (interactive (list (read-string "Outfile name base")))
+  (setq gnome-gifcast-gnome-screencast-file outfile-name-base)
+  (setq gnome-gifcast-gnome-running t)
+  (if gnome-gifcast-coords
+      (apply #'gnome-screencast-area gnome-gifcast-gnome-screencast-file
+             (append gnome-gifcast-coords
+                     gnome-gifcast-gnome-screencast-arguments))
+    (gnome-screencast gnome-gifcast-gnome-screencast-file
+                      gnome-gifcast-gnome-screencast-arguments)))
 
 (defun gnome-gifcast-get-window-coords (wind)
   "Retrieve pixel coordinates of a given window.
@@ -400,7 +547,9 @@ when provided."
            (run-with-timer 1 nil #'gnome-gifcast--worker)))
     ((pred (zerop))
      (force-mode-line-update)
-     (gnome-gifcast-start)
+     (gnome-gifcast-start (if (functionp gnome-gifcast-out-filename)
+                              (funcall gnome-gifcast-out-filename)
+                            gnome-gifcast-out-filename))
      (setq gnome-gifcast--duration-timer
            (run-with-timer 1 nil #'gnome-gifcast--increment-duration)))))
 
@@ -413,8 +562,8 @@ when provided."
   (interactive "P")
   (gnome-gifcast--cancel-duration-timer)
   (pcase gnome-gifcast--duration-seconds
-    ((pred (not (integerp)))
-     (setq gnome-gifcast--duration-seconds -3)
+    ((pred (not (numberp)))
+     (setq gnome-gifcast--duration-seconds (- gnome-gifcast-countdown-seconds))
      (setq gnome-gifcast-coords
            (when (if arg
                      (not gnome-gifcast-record-current-window-only)
@@ -449,6 +598,45 @@ when provided."
             gnome-gifcast-post-record-hook
             '(gnome-gifcast-screencast-file-to-gif)))))
     (gnome-gifcast-toggle arg)))
+
+
+(defun gnome-gifcast--open-file-extern (file)
+  "Open FILE with the default external application based on the system type.
+
+Argument FILE is the path to the file to be opened."
+  (if (and (eq system-type 'windows-nt)
+           (fboundp 'w32-shell-execute))
+      (w32-shell-execute "open" file)
+    (call-process-shell-command (format "%s %s"
+                                        (pcase system-type
+                                          ('darwin "open")
+                                          ('cygwin "cygstart")
+                                          (_ "xdg-open"))
+                                        (shell-quote-argument (expand-file-name
+                                                               file)))
+                                nil 0)))
+
+(defun gnome-gifcast-notify (file &rest params)
+  "Send a notification about a recorded screencast with an option to open it.
+
+Argument FILE is the path to the screencast file.
+
+Remaining arguments PARAMS are additional parameters passed to
+`notifications-notify'."
+  (require 'notifications)
+  (gnome-gifcast-browse-file-url file)
+  (when (fboundp 'notifications-notify)
+    (apply #'notifications-notify
+           :title "Screencast recordered"
+           :body (format "Click here to open %s" file)
+           :actions `("default" ,(format "Click here to open %s" file))
+           :urgency 'critical
+           :on-action (lambda (_id key)
+                        (pcase key
+                          ("default"
+                           (message "openning")
+                           (gnome-gifcast--open-file-extern file))))
+           params)))
 
 (provide 'gnome-gifcast)
 ;;; gnome-gifcast.el ends here
