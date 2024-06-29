@@ -386,6 +386,7 @@ Optional argument ON-ERROR is a function to call if the conversion fails."
              (set-process-filter proc #'comint-output-filter))
            proc)))
 
+;;;###autoload
 (defun gnome-gifcast-convert-to-gif (file &optional outfile)
   "Convert a video FILE to GIF format and notify on completion.
 
