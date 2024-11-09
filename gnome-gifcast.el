@@ -289,7 +289,7 @@ This will direct all new screencast recordings to the specified directory."
 (defun gnome-gifcast--mode-line-stop ()
   "Remove gif mode line."
   (dolist (buff (buffer-list))
-    (when-let ((mline (buffer-local-value 'mode-line-format buff)))
+    (when-let* ((mline (buffer-local-value 'mode-line-format buff)))
       (cond ((and (listp mline)
                   (or
                    (eq gnome-gifcast-mode-line-format
@@ -326,7 +326,7 @@ Argument OUTFILE is the path to the file that will be opened in the browser."
 (defun gnome-gifcast-resolve-screencastfile ()
   "Resolve full path for GNOME screencast file."
   (when gnome-gifcast-gnome-screencast-file
-    (when-let ((file (expand-file-name
+    (when-let* ((file (expand-file-name
                       gnome-gifcast-gnome-screencast-file
                       gnome-gifcast-screencast-directory)))
       (when (file-exists-p file)
@@ -379,7 +379,7 @@ Optional argument ON-ERROR is a function to call if the conversion fails."
                            (funcall on-error)))
                   (when on-success
                     (funcall on-success outfile))
-                  (when-let ((buff (process-buffer process)))
+                  (when-let* ((buff (process-buffer process)))
                     (kill-buffer buff))))))
            (require 'comint)
            (when (fboundp 'comint-output-filter)
@@ -417,7 +417,7 @@ Optional argument OUTFILE is the path where the converted GIF should be saved."
 
 (defun gnome-gifcast-screencast-file-to-gif ()
   "Convert a GNOME screencast file to GIF format."
-  (when-let ((file (gnome-gifcast-resolve-screencastfile)))
+  (when-let* ((file (gnome-gifcast-resolve-screencastfile)))
     (gnome-gifcast--convert-to-gif file
                                    nil
                                    (lambda (outfile)
@@ -433,7 +433,7 @@ Optional argument OUTFILE is the path where the converted GIF should be saved."
         (gnome-screencast-stop)
       (setq gnome-gifcast-gnome-running nil)
       (progn
-        (when-let ((file (gnome-gifcast-resolve-screencastfile)))
+        (when-let* ((file (gnome-gifcast-resolve-screencastfile)))
           (when (and running
                      (not (memq 'gnome-gifcast-screencast-file-to-gif
                                 gnome-gifcast-post-record-hook)))
@@ -452,7 +452,7 @@ Note, potentially it can overwrite previous ones."
   (file-name-base
    (directory-file-name
     (or
-     (when-let ((project (ignore-errors
+     (when-let* ((project (ignore-errors
                            (project-current))))
        (if (fboundp 'project-root)
            (project-root project)
@@ -569,7 +569,7 @@ when provided."
            (when (if arg
                      (not gnome-gifcast-record-current-window-only)
                    gnome-gifcast-record-current-window-only)
-             (if-let ((wnd (minibuffer-selected-window)))
+             (if-let* ((wnd (minibuffer-selected-window)))
                  (gnome-gifcast-get-window-coords wnd)
                (gnome-gifcast-get-window-coords (selected-window)))))
      (run-hooks 'gnome-gifcast-pre-init-hook)
