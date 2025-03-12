@@ -35,7 +35,7 @@
 (require 'gnome-screencast)
 
 (defcustom gnome-gifcast-ffmpeg-args '("-y" "-vf"
-                                       "fps=12,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer"
+                                       "setpts=0.5*PTS,fps=12,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer"
                                        "-loop" "0")
   "List of arguments for ffmpeg command.
 
